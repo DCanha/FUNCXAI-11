@@ -1,7 +1,9 @@
 import numpy as np
 from sklearn.metrics import auc
+import pandas as pd
+import matplotlib.pyplot as plt
 
-# F2.1 - Expressive Power
+##### F2.1 - Expressive Power ####
 def f2_1(n, F, C):
     """
     Calculate the Expressive Power (F2.1) score.
@@ -21,7 +23,7 @@ def f2_1(n, F, C):
     score = n + len(F) + (comprehensible_count / len(F)) if F else 0  # Avoid division by zero if F is empty
     return round(score,1)
 
-# F3- Selectivity
+##### F3- Selectivity ####
 def f3(s, tunable=False, sigma=2):
     """
     Calculate the Selectivity (F3) score based on explanation size.
@@ -37,10 +39,10 @@ def f3(s, tunable=False, sigma=2):
     if tunable:
         return 1.0
     else:
-        return round((2.718 ** (-((s - 7) ** 2) / (2 * sigma ** 2))), 1)
+        return round((np.e ** (-((s - 7) ** 2) / (2 * sigma ** 2))), 1)
     
 
-# F4.2 - Target Sensitivity
+##### F4.2 - Target Sensitivity ####
 def f4_2(E1, E2, d_max, distance_metric):
     """
     Calculate Target Sensitivity (F4.2) score.
@@ -58,10 +60,11 @@ def f4_2(E1, E2, d_max, distance_metric):
     d = distance_metric(E1, E2)
     return round(d / d_max,1)
 
-# F6.2 - Surrogate Agreement
+##### F6.2 - Surrogate Agreement ####
 def f6_2(blackbox_preds, surrogate_preds):
     """
     Calculate the Surrogate Agreement (F6.2) score.
+    To be added: max((bx)) for regression problems; in classification this is 1.
 
     Parameters:
         blackbox_preds (array): Black-box model predictions.
@@ -74,7 +77,10 @@ def f6_2(blackbox_preds, surrogate_preds):
     avg_diff = np.mean(np.abs(blackbox_preds - surrogate_preds))
     return round(1 - avg_diff,1)
 
+##### F7 - Faithfulness ####
+
 # F7.1 - Incremental Deletion
+
 def f7_1_get_probs_auc(model, instance, base_instance, feature_ranking, X):
     """
     Perform incremental deletion for a single instance and calculate AUC.
@@ -237,3 +243,314 @@ def f7_3_score(agreement):
         return 1  # Some agreement
     else:
         return 0  # No agreement
+    
+#### F9 - Stability ####
+
+# Similarity - neighbors computing taken from shapash library
+
+# From shapash
+def _compute_distance(x1, x2, mean_vector, epsilon=0.0000001):
+    """
+    Compute distances between data points by using L1 on normalized data : sum(abs(x1-x2)/(mean_vector+epsilon))
+
+    Parameters
+    ----------
+    x1 : array
+        First vector
+    x2 : array
+        Second vector
+    mean_vector : array
+        Each value of this vector is the std.dev for each feature in dataset
+
+    Returns
+    -------
+    diff : float
+        Returns :math:`\\sum(\\frac{|x1-x2|}{mean\\_vector+epsilon})`
+    """
+    diff = np.sum(np.abs(x1 - x2) / (mean_vector + epsilon))
+    return diff
+
+# From shapash
+def _compute_similarities(instance, dataset):
+    """
+    Compute pairwise distances between an instance and all other data points
+
+    Parameters
+    ----------
+    instance : 1D array
+        Reference data point
+    dataset : 2D array
+        Entire dataset used to identify neighbors
+
+    Returns
+    -------
+    similarity_distance : array
+        V[j] == distance between actual instance and instance j
+    """
+    mean_vector = np.array(dataset, dtype=np.float32).std(axis=0)
+    similarity_distance = np.zeros(dataset.shape[0])
+
+    for j in range(0, dataset.shape[0]):
+        # Calculate distance between point and instance j
+        dist = _compute_distance(instance, dataset[j], mean_vector)
+        similarity_distance[j] = dist
+
+    return similarity_distance
+
+# From shapash
+def _get_radius(dataset, n_neighbors, sample_size=500, percentile=95):
+    """
+    Calculate the maximum allowed distance between points to be considered as neighbors
+
+    Parameters
+    ----------
+    dataset : DataFrame
+        Pool to sample from and calculate a radius
+    n_neighbors : int
+        Maximum number of neighbors considered per instance
+    sample_size : int, optional
+        Number of data points to sample from dataset, by default 500
+    percentile : int, optional
+        Percentile used to calculate the distance threshold, by default 95
+
+    Returns
+    -------
+    radius : float
+        Distance threshold
+    """
+    # Select 500 points max to sample
+    size = min([dataset.shape[0], sample_size])
+    # Randomly sample points from dataset
+    rng = np.random.default_rng(seed=79)
+    sampled_instances = dataset[rng.integers(0, dataset.shape[0], size), :]
+    # Define normalization vector
+    mean_vector = np.array(dataset, dtype=np.float32).std(axis=0)
+    # Initialize the similarity matrix
+    similarity_distance = np.zeros((size, size))
+    # Calculate pairwise distance between instances
+    for i in range(size):
+        for j in range(i, size):
+            dist = _compute_distance(sampled_instances[i], sampled_instances[j], mean_vector)
+            similarity_distance[i, j] = dist
+            similarity_distance[j, i] = dist
+    # Select top n_neighbors
+    ordered_x = np.sort(similarity_distance)[:, 1 : n_neighbors + 1]
+    # Select the value of the distance that captures XX% of all distances (percentile)
+    return np.percentile(ordered_x.flatten(), percentile)
+
+# From shapash
+def find_neighbors(selection, dataset, model, mode, n_neighbors=10):
+    """
+    For each instance, select neighbors based on 3 criteria:
+
+    1. First pick top N closest neighbors (L1 Norm + st. dev normalization)
+    2. Filter neighbors whose model output is too different from instance (see condition below)
+    3. Filter neighbors whose distance is too big compared to a certain threshold
+
+    Parameters
+    ----------
+    selection : list
+        Indices of rows to be displayed on the stability plot
+    dataset : DataFrame
+        Entire dataset used to identify neighbors
+    model : model object
+        ML model
+    mode : str
+        "classification" or "regression"
+    n_neighbors : int, optional
+        Top N neighbors initially allowed, by default 10
+
+    Returns
+    -------
+    all_neighbors : list of 2D arrays
+        Wrap all instances with corresponding neighbors in a list with length (#instances).
+        Each array has shape (#neighbors, #features) where #neighbors includes the instance itself.
+    """
+    instances = dataset.loc[selection].values
+
+    all_neighbors = np.empty((0, instances.shape[1] + 1), float)
+    """Filter 1 : Pick top N closest neighbors"""
+    for instance in instances:
+        c = _compute_similarities(instance, dataset.values)
+        # Pick indices of the closest neighbors (and include instance itself)
+        neighbors_indices = np.argsort(c)[: n_neighbors + 1]
+        # Return instance with its neighbors
+        neighbors = dataset.values[neighbors_indices]
+        # Add distance column
+        neighbors = np.append(neighbors, c[neighbors_indices].reshape(n_neighbors + 1, 1), axis=1)
+        all_neighbors = np.append(all_neighbors, neighbors, axis=0)
+
+    # Calculate predictions for all instances and corresponding neighbors
+    if mode == "regression":
+        # For XGB it is necessary to add columns in df, otherwise columns mismatch
+        predictions = model.predict(pd.DataFrame(all_neighbors[:, :-1], columns=dataset.columns))
+    elif mode == "classification":
+        predictions = model.predict_proba(pd.DataFrame(all_neighbors[:, :-1], columns=dataset.columns))[:, 1]
+
+    # Add prediction column
+    all_neighbors = np.append(all_neighbors, predictions.reshape(all_neighbors.shape[0], 1), axis=1)
+    # Split back into original chunks (1 chunck = instance + neighbors)
+    all_neighbors = np.split(all_neighbors, instances.shape[0])
+
+    """Filter 2 : neighbors with similar blackbox output"""
+    # Remove points if prediction is far away from instance prediction
+    if mode == "regression":
+        # Trick : use enumerate to allow the modifcation directly on the iterator
+        for i, neighbors in enumerate(all_neighbors):
+            all_neighbors[i] = neighbors[abs(neighbors[:, -1] - neighbors[0, -1]) < 0.1 * abs(neighbors[0, -1])]
+    elif mode == "classification":
+        for i, neighbors in enumerate(all_neighbors):
+            all_neighbors[i] = neighbors[abs(neighbors[:, -1] - neighbors[0, -1]) < 0.1]
+
+    """Filter 3 : neighbors below a distance threshold"""
+    # Remove points if distance is bigger than radius
+    radius = _get_radius(dataset.values, n_neighbors)
+
+    for i, neighbors in enumerate(all_neighbors):
+        # -2 indicates the distance column
+        all_neighbors[i] = neighbors[neighbors[:, -2] < radius]
+    return all_neighbors
+
+# Extract neighbors for each instance
+def prepare_neighbors(all_neighbors, feature_columns):
+    """
+    Prepare a list of 2D arrays containing feature values of neighbors for XAI methods.
+
+    Parameters:
+    ----------
+    all_neighbors : list of 2D arrays
+        Output from find_neighbors function.
+    feature_columns : list
+        List of feature column names (excludes distance and predictions).
+
+    Returns:
+    -------
+    exp_input : list of 2D arrays
+        Each array corresponds to the neighbors of a specific instance, with only feature columns.
+    """
+    exp_input = []
+    for neighbors in all_neighbors:
+        # Extract only feature columns (exclude distance and prediction columns)
+        feature_data = neighbors[:, :len(feature_columns)]
+        exp_input.append(feature_data)
+    return exp_input
+
+
+def f9_score(exp_neighbors, distance_metric, epsilon=1e-8, metric="similarity"):
+    """
+    Compute the m_f9.2 metric for similarity (higher value for lower distance) or identity (same instance instead of neighbors).
+
+    Parameters:
+    ----------
+    exp_neighbors : list of 2D arrays
+        Each array corresponds to the neighbors of a specific instance, with feature values.
+    distance_metric : function
+        Function to compute the distance between explanations.
+    epsilon : float, optional
+        Small value to avoid division by zero, by default 1e-8.
+    metric : str, optional
+        "similarity" or "identity", by default "similarity".
+
+    Returns:
+    -------
+    m_f9.2 : float
+        Average similarity or identity score.
+    """
+    total_similarity = 0
+    instance_count = len(exp_neighbors)
+
+    for neighbors in exp_neighbors:
+        # For identity, compute mean and std of the original explanations (column 1) only once
+        if metric == "identity":
+            original_explanations = np.array([row[0] for row in neighbors])
+            mean_col1 = np.mean(original_explanations, axis=0)
+            std_col1 = np.std(original_explanations, axis=0)
+
+        # Normalize the neighbors
+        if metric == "similarity":
+            normalized_neighbors = (neighbors - np.mean(neighbors, axis=0)) / (np.std(neighbors, axis=0) + epsilon)
+        else:  # For identity
+            normalized_neighbors = (neighbors - mean_col1) / (std_col1 + epsilon)
+
+        # Use the first neighbor as the reference instance (x1)
+        x1 = normalized_neighbors[0]
+        r = len(normalized_neighbors) - 1  # Number of neighbors excluding the instance itself
+        similarities = []
+
+        for j in range(1, len(normalized_neighbors)):
+            xj = normalized_neighbors[j]
+            
+            # Compute distance based on the selected distance_metric
+            dist = distance_metric(x1, xj)  # e.g., Euclidean distance
+
+            # Compute similarity as 1 / (1 + distance)
+            similarity = 1 / (1 + dist)
+            similarities.append(similarity)
+
+        # Average similarity for this instance and its neighbors
+        total_similarity += (1 / r) * np.sum(similarities)
+
+    # Average across all instances
+    m_f9_2 = total_similarity / instance_count
+    return round(m_f9_2, 1)
+
+
+def scatter_feature_values(exp_neighbors, instance_idx=None, metric="similarity"):
+    """
+    Create a scatter plot of feature values for a specific instance or all instances.
+
+    Parameters:
+    ----------
+    exp_neighbors : list of 2D arrays
+        Each array corresponds to the neighbors of a specific instance, with feature values.
+    instance_idx : list, optional
+        List of Indexes of the instances to plot. If None, plots all instances, by default None.
+    metric : str
+        "similarity" or "identity".
+    """
+    # Select the instance(s) to plot
+    if instance_idx is not None:
+        instances_to_plot = instance_idx
+    else:
+        instances_to_plot = range(len(exp_neighbors))
+
+    for idx in instances_to_plot:
+        neighbors = np.array(exp_neighbors[idx])  # Convert to NumPy array
+        plt.figure(figsize=(12, 6))
+        for feature_idx in range(neighbors.shape[1]):
+            # Swap x and y: feature values on x-axis, neighbor/run indices on y-axis
+            plt.scatter(neighbors[:, feature_idx], range(neighbors.shape[0]), label=f"Feature {feature_idx + 1}")
+
+        plt.title(f"Scatter Plot Across Neighbors (Instance {idx})" if metric == "similarity"
+                  else f"Scatter Plot Across Runs (Instance {idx})")
+        plt.xlabel("ExplanationValues")
+        plt.ylabel("Neighbors / Runs")
+        plt.legend()
+        plt.grid(True)
+
+        # Ensure y-axis has only integer values
+        plt.yticks(ticks=range(neighbors.shape[0]))
+
+        plt.show()
+
+#### F11 - Speed ####
+def calculate_speed_score(runtime):
+    """
+    Calculate the speed score based on the explanation runtime.
+
+    Parameters:
+    runtime (float): Runtime of the explanation generation in seconds.
+
+    Returns:
+    int: Speed score (0-4).
+    """
+    if runtime > 10:
+        return 0
+    elif 5 < runtime <= 10:
+        return 1
+    elif 1 < runtime <= 5:
+        return 2
+    elif 0.1 < runtime <= 1:
+        return 3
+    elif runtime <= 0.1:
+        return 4
