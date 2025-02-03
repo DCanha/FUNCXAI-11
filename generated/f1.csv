@@ -1,0 +1,4 @@
+,Scope (F1.1),Portability (F1.2),Access (F1.3),Practicality (F1.4),Total
+LIME,2,2,4,3,11
+KernelSHAP,2,2,4,2,10
+TreeSHAP,3,1,3,3,10

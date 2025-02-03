@@ -1,0 +1,4 @@
+,Reality Check (F8.1),Bias Detection (F8.2),Total
+LIME,1,1,2
+KernelSHAP,1,1,2
+TreeSHAP,2,1,3

@@ -1,0 +1,4 @@
+,Incremental Deletion (F7.1),ROAR (F7.2),White-Box Check (F7.3),Total
+LIME,0.4,,1,1.4
+KernelSHAP,0.5,,2,2.5
+TreeSHAP,0.5,0.1,2,2.5
