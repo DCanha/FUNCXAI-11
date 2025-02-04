@@ -1,6 +1,6 @@
 # FUNCXAI-11
 
-This repository provides the implementation of a **benchmark framework for Explainable Artificial Intelligence (XAI) methods**. The framework evaluates XAI techniques based on **11 key properties (F1–F11)** and applies them to **LIME, KernelSHAP, and TreeSHAP** using the **Pima Indians dataset** and a **Random Forest classifier**. The purpose of this benchmark is to help researchers and practitioners assess the strengths and weaknesses of XAI methods in a structured manner.  
+This repository provides the implementation of a **benchmark framework for Explainable Artificial Intelligence (XAI) methods**. The framework evaluates XAI techniques based on **11 functionally-grounded properties (F1–F11)** and applies them to LIME, KernelSHAP, and TreeSHAP using the Pima Indians dataset and a Random Forest classifier. The purpose of this benchmark is to help researchers and practitioners assess the strengths and weaknesses of XAI methods in a structured manner.  
 
 ## Repository Structure  
 
