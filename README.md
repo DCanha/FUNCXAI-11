@@ -2,8 +2,6 @@
 
 This repository provides the implementation of a **benchmark framework for Explainable Artificial Intelligence (XAI) methods**. The framework evaluates XAI techniques based on **11 key properties (F1–F11)** and applies them to **LIME, KernelSHAP, and TreeSHAP** using the **Pima Indians dataset** and a **Random Forest classifier**. The purpose of this benchmark is to help researchers and practitioners assess the strengths and weaknesses of XAI methods in a structured manner.  
 
----
-
 ## Repository Structure  
 
 - `metrics.py` – Contains all functions defining the **numerical formulation of the evaluation metrics** for the framework.  
@@ -13,7 +11,6 @@ This repository provides the implementation of a **benchmark framework for Expla
   - `ALL.csv` – Aggregated scores for all evaluated methods.  
   - Spider plots used in **Section 4** of the paper to visualize the properties of the XAI methods.  
 
----
 
 ## How to Use  
 
@@ -24,14 +21,12 @@ To follow the evaluation step-by-step, open **`framework_example.ipynb`** and ex
 
 Ensure all dependencies are installed before running the scripts.  
 
----
 
 ## Dependencies 
 
  - Python (3.10.10)
  - Python packages: *numpy*, *pandas*, *shap*, *lime*, *sklearn*, *matplotlib*, *scipy*, *dice_ml*, *time* (optional: *seaborn*, *os*, *warnings*)
 
----
 
 ## Published Work
 
