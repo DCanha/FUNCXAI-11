@@ -30,7 +30,7 @@ Ensure all dependencies are installed before running the scripts.
 
 ## Published Work
 
-Please refer to the following paper for a comprehensive overview of the methodology, results, and interpretations:
+For a detailed explanation of the framework, methodology, and results, please refer to the associated paper:
 
  - *TO BE ADDED*
 
