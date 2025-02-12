@@ -246,7 +246,7 @@ def f7_3_score(agreement):
     
 #### F9 - Stability ####
 
-# Similarity - neighbors computing taken from shapash library
+# Similarity - neighbors computing taken from shapash library - https://github.com/ModelOriented/shapper
 
 # From shapash
 def _compute_distance(x1, x2, mean_vector, epsilon=0.0000001):
